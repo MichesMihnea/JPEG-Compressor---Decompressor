@@ -915,6 +915,10 @@ void decode_file2(char s[], int len, char codes[][1000], int size, int symbols[]
 	char ans[1000] = "";
 	int index = 0;
 	int resIndex = 0;
+	//printf("!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+	//printf("!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+	//printf("Size: %d\n", size);
+
 	for (int i = 0; i < len; i++)
 	{
 		//printf("%d", s[i]);
@@ -924,13 +928,17 @@ void decode_file2(char s[], int len, char codes[][1000], int size, int symbols[]
 		for (int j = 0; j < size; j++) {
 			int valid = 1;
 			//printf("\nCHECKING FOR LENGTH: %d ", lengths[j]);
+			//printf("Code: ");
 			for (int it = 0; it < lengths[j]; it++) {
 				//printf("COMPARING %d AGAINST %d ", ans[it], codes[j][it]);
-				if (ans[it] != codes[j][it] || lengths[j] != index) {
+				//printf("%X", codes[j][it]);
+				if (ans[it] != codes[j][it] || lengths[j] != index
+					) {
 					valid = 0;
 					//printf("FAILED AT COMPARING %d AGAINST %d ", ans[it], codes[j][it]);
 				}
 			}
+			//printf(" Size: %d\n", strlen(codes[j]));
 			if (valid == 1) {
 				result[resIndex++] = symbols[j];
 				//printf(" DECODED TO %d\n", symbols[j]);
@@ -945,18 +953,286 @@ void decode_file2(char s[], int len, char codes[][1000], int size, int symbols[]
 	//return ans + '\0';
 }
 
+void decompress_file(int h, int w) {
+
+	FILE* fptr;
+	Mat_<Vec3b> img(h, w);
+	fptr = fopen("letters3", "rb");
+	int blockNr = 0;
+	int readBytes = 0;
+	int imI = 0;
+	int imJ = 0;
+	int channel = 0;
+
+	while (!feof(fptr)) {
+		blockNr++;
+		//printf("READING BLOCK: %d\n", blockNr);
+		char* blockSizeChar = (char*)malloc(sizeof(char));
+		char* nrSymbolsChar = (char*)malloc(sizeof(char));
+		readBytes = fread(blockSizeChar, 1, 1, fptr);
+
+		if (readBytes == 0)
+			break;
+
+		readBytes = fread(nrSymbolsChar, 1, 1, fptr);
+
+		if (readBytes == 0)
+			break;
+
+		sprintf(blockSizeChar, "%d", *blockSizeChar);
+		sprintf(nrSymbolsChar, "%d", *nrSymbolsChar);
+		int blockSize = atoi(blockSizeChar);
+		if (blockSize < 0)
+			blockSize += 256;
+		int nrSymbols = atoi(nrSymbolsChar);
+		if (nrSymbols < 0)
+			nrSymbols += 256;
+		//printf("\nSIZE : %d SYMBOLS: %d\n", blockSize, nrSymbols);
+
+		int symbols[64];
+		int codes[64];
+		int lengths[64];
+		char result[1000];
+		
+		for (int i = 0; i < nrSymbols; i++) {
+			char* newSymbolChar = (char*)malloc(sizeof(char));
+			char* newCodeChar = (char*)malloc(sizeof(char));
+			char* newLengthChar = (char*)malloc(sizeof(char));
+			fread(newSymbolChar, 1, 1, fptr);
+			fread(newCodeChar, 1, 1, fptr);
+			fread(newLengthChar, 1, 1, fptr);
+			sprintf(newCodeChar, "%d", *newCodeChar);
+			sprintf(newSymbolChar, "%d", *newSymbolChar);
+			sprintf(newLengthChar, "%d", *newLengthChar);
+			symbols[i] = atoi(newSymbolChar);
+			if (symbols[i] < 0)
+				symbols[i] += 256;
+			codes[i] = atoi(newCodeChar);
+			lengths[i] = atoi(newLengthChar);
+			//printf("%d %d %d\n", symbols[i], codes[i], lengths[i]);
+		}
+
+		
+		int len = 0;
+		if (blockSize % 8 == 0)
+			len = blockSize / 8;
+		else len = ceil((float) blockSize / 8.0f);
+
+		unsigned char mybyte = 0;
+		int byteIndex = 1;
+		int charIndex = 1;
+		int currLength = 0;
+		int resultIndex = 0;
+		int checkLength = 0;
+		
+		for (int i = 0; i < len; i++) {
+			char* dataChar = (char*)malloc(sizeof(char));
+			fread(dataChar, 1, 1, fptr);
+			sprintf(dataChar, "%d", *dataChar);
+			int data = atoi(dataChar);
+			int data2 = data;
+
+			while (charIndex <= 8) {
+
+				if (data2 & 128) {
+					if (byteIndex == 0)
+						mybyte |= 256;
+					else if (byteIndex == 1)
+						mybyte |= 128;
+					else if (byteIndex == 2)
+						mybyte |= 64;
+					else if (byteIndex == 3)
+						mybyte |= 32;
+					else if (byteIndex == 4)
+						mybyte |= 16;
+					else if (byteIndex == 5)
+						mybyte |= 8;
+					else if (byteIndex == 6)
+						mybyte |= 4;
+					else if (byteIndex == 7)
+						mybyte |= 2;
+
+				}
+
+				//printf("MYBYTE = %d\n", mybyte);
+
+				int found = 0;
+
+				for (int j = 0; j < nrSymbols; j++) {
+					//printf("FOR BYTEINDEX = %d\n", byteIndex);
+					int currSymbol = symbols[j];
+					int currCode = codes[j];
+
+					if (byteIndex != lengths[j])
+						continue;
+
+					//printf("TEST: %d CODES: %d\n", mybyte, currCode);
+
+					int codeIndex = 0;
+					int valid = 1;
+					int data3 = mybyte;
+
+					while (codeIndex < byteIndex) {
+
+						if ((data3 & 128) == 128) {
+							if ((currCode & 128) != 128) {
+								valid = 0;
+							}
+						}
+
+						if ((data3 & 128) == 0) {
+							if ((currCode & 128) != 0) {
+								valid = 0;
+							}
+						}
+						
+						if ((currCode & 128) == 0) {
+							if ((data3 & 128) != 0) {
+								valid = 0;
+							}
+						}
+
+
+						if ((currCode & 128) == 128) {
+							if ((data3 & 128) != 128) {
+								valid = 0;
+							}
+						}
+
+						if (valid == 1) {
+							//printf("currCode = %d data3 = %d\n", currCode & 128, data3 & 128);
+						}
+
+						data3 = data3 << 1;
+						currCode = currCode << 1;
+
+						codeIndex++;
+					}
+
+
+					if (valid == 1) {
+						//printf("FOUND! %d IN BYTE %d POSITION %d WITH BYTEINDEX %d\n", currSymbol, i, charIndex, byteIndex);
+						checkLength += byteIndex;
+						result[resultIndex++] = currSymbol;
+						byteIndex = 0;
+						mybyte = 0;
+						found = 1;
+						break;
+					}
+
+					if (found == 1)
+						break;
+
+				}
+
+				byteIndex++;
+				data2 = data2 << 1;
+				charIndex++;
+				if (checkLength == blockSize)
+					break;
+			}
+
+			charIndex = 1;
+
+			//printf("%d ", data);
+		}
+
+		/*
+		//printf("\nLEN: %d\nRESULT: \n", checkLength);
+		for (int k = 0; k < resultIndex; k++)
+			if (result[k] > 0)
+				//printf("%d ", result[k]);
+			else printf("%d ", result[k] + 256);
+			*/
+		Mat_<double> block(8, 8);
+		Mat luminance = Mat(8, 8, CV_64FC1, &dataLuminance);
+		Mat chrominance = Mat(8, 8, CV_64FC1, &dataChrominance);
+
+		Mat_<uchar>decodedMat(1, 64);
+		Mat_<uchar>decodedBlock(8, 8);
+
+		for (int it = 0; it < 64; it++)
+			decodedMat(0, it) = result[it];
+
+		//printf("\nDECODED: \n");
+
+		decodedBlock = getReverseZigZagTraversal(decodedMat);
+
+
+
+
+		//std::cout << "\n\n\n\n";
+		block = decodedBlock;
+
+
+		for (int it = 0; it < 8; it++) {
+			for (int it2 = 0; it2 < 8; it2++) {}
+			//	printf("%d ", decodedBlock(it, it2));
+			//printf("\n");
+		}
+
+
+		//blockU.convertTo(block, CV_64FC1);
+
+		block -= 128.0;
+
+		if (channel == 0) {
+			multiply(block, luminance, block);
+		}
+		else {
+			multiply(block, chrominance, block);
+		}
+
+		idct(block, block);
+
+		block += 128.0;
+
+		for (int bi = 0; bi < 8 && bi + imI < img.rows; bi++)
+			for (int bj = 0; bj < 8 && bj + imJ < img.cols; bj++) {
+				img(imI + bi, imJ + bj)[channel] = block(bi, bj);
+
+			}
+
+		channel++;
+
+		if (channel > 2) {
+
+			channel = 0;
+			imJ += 8;
+
+			if (imJ > w) {
+				imJ = 0;
+				imI += 8;
+			}
+
+		}
+		
+		//printf("\n\n\n\n");
+		
+	}
+
+	cvtColor(img, img, COLOR_YCrCb2BGR);
+	imshow("decompressed", img);
+	waitKey(0);
+}
+
 void step2(Mat_<Vec3b> img) {
 
 	Mat_<Vec3b> dst(img.rows, img.cols);
 	Mat luminance = Mat(8, 8, CV_64FC1, &dataLuminance);
 	Mat chrominance = Mat(8, 8, CV_64FC1, &dataChrominance);
-	FILE *fptr = fopen("letters", "w");
+	FILE *fptr = fopen("compressed", "wb");
 	long totalLen = 0;
 	long originalLen = 0;
+	int blockNr = 0;
+	int fileSize = 0;
+	int symbolSize = 0;
+	int codeSize = 0;
 
-	for (int i = 0; i < img.rows; i += 8)
-		for (int j = 0; j < img.cols; j += 8) {
+	for (int i = 0; i <= img.rows; i += 8)
+		for (int j = 0; j <= img.cols; j += 8) {
 			for (int channel = 0; channel < 3; channel++) {
+				blockNr++;
 				Mat_<double> block(8, 8);
 				originalLen += 64;
 
@@ -1039,21 +1315,30 @@ void step2(Mat_<Vec3b> img) {
 					printCodes(root, arr, 0, symbols[it], out[it], &top);
 					lengths[it] = top;
 				}
-
-				//printf("\nCODES:\n");
-
-				for (int it = 0; it < index; it++) {
-					//printf("%d - ", symbols[it]);
-					for (int it2 = 0; it2 < lengths[it]; it2++) {}
-						//printf("%d", out[it][it2]);
-					//printf("\n");
-				}
 				
+				//printf("\nBLOCK %d\n", blockNr);
+				
+				/*
+				for (int it = 0; it < index; it++) {
+				printf("%d - ", symbols[it]);
+					for (int it2 = 0; it2 < lengths[it]; it2++) 
+						printf("%d", out[it][it2]);
+					printf("\n");
+				}
+
+								printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+								printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+
+								printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+*/
+
 				char result[64 * 1000];
 				int finalLength = 0;
 				int byteIndex = 0;
 				unsigned char mybyte = 0;
+				//fwrite(&mybyte, 1, 1, fptr);
 			//	printf("\nCODED STRING:\n");
+
 				for (int it = 0; it < 64; it++) {
 					int symbolIndex = 0;
 					for (int it2 = 0; it2 < index; it2++)
@@ -1061,28 +1346,130 @@ void step2(Mat_<Vec3b> img) {
 							symbolIndex = it2;
 							break;
 						}
+					//	printf(" ");
+					finalLength += lengths[symbolIndex];
+				}
+				//printf("LENGTH = %d INDEX = %d\n", finalLength, index);
+				/*
+				if (finalLength == 106 && index == 13) {
+					for (int it = 0; it < index; it++) {
+						printf("%d - ", symbols[it]);
+						for (int it2 = 0; it2 < lengths[it]; it2++)
+							printf("%d", out[it][it2]);
+						printf("\n");
+					}
+				}
+				*/
+					fileSize += fwrite(&finalLength, 1, 1, fptr);
+					fileSize += fwrite(&index, 1, 1, fptr);
+
+				//if (index == 13)
+					//printf("FOUND INDEX AT %d\n", finalLength);
+
+				for (int it = 0; it < index; it++) {
+					int printNext = 0;
+					int currentSymbol = symbols[it];
+					//if (currentSymbol == 106)
+						//printf("FOUND AT 2 %d\n", symbols[it+1]);
+					symbolSize += fwrite(&currentSymbol, 1, 1, fptr);
+					for (int it2 = 0; it2 < lengths[it]; it2++) {
+						result[finalLength + it2] = out[it][it2];
+						byteIndex++;
+						//mybyte = mybyte >> 1;
+						//printf("%X ", out[symbolIndex][it2]);
+						if (out[it][it2] == 1) {
+							if(byteIndex == 1)
+								mybyte |= 128;
+							else if (byteIndex == 2)
+								mybyte |= 64;
+							else if (byteIndex == 3)
+								mybyte |= 32;
+							else if (byteIndex == 4)
+								mybyte |= 16;
+							else if (byteIndex == 5)
+								mybyte |= 8;
+							else if (byteIndex == 6)
+								mybyte |= 4;
+							else if (byteIndex == 7)
+								mybyte |= 2;
+							else if (byteIndex == 8)
+								mybyte |= 1;
+
+							//printf("ONE! %X\n", mybyte);
+						}
+					}
+
+					codeSize += fwrite(&mybyte, 1, 1, fptr);
+					int currentLength = lengths[it];
+					fwrite(&currentLength, 1, 1, fptr);
+					byteIndex = 0;
+					mybyte = 0;
+
+				}
+
+				finalLength = 0; int printNext = 0;
+				byteIndex = 0;
+
+				for (int it = 0; it < 64; it++) {
+					int symbolIndex = 0;
+					
+
+					for (int it2 = 0; it2 < index; it2++)
+						if (symbols[it2] == zigZag(0, it)) {
+							symbolIndex = it2;
+							break;
+						}
+					//printf("%d ", symbols[symbolIndex]);
 					for (int it2 = 0; it2 < lengths[symbolIndex]; it2++) {
 						result[finalLength + it2] = out[symbolIndex][it2];
 						if (byteIndex <= 7) {
 							byteIndex++;
-							mybyte << 1;
-							if (out[symbolIndex][it2] == 1)
-								mybyte | 1;
+							mybyte = mybyte << 1;
+							//printf("%X ", out[symbolIndex][it2]);
+							if (out[symbolIndex][it2] == 1) {
+								mybyte |= 1;
+								//printf("ONE! %X\n", mybyte);
+							}
 						}else
 						if (byteIndex == 8) {
+							//printf("%X ", mybyte);
+							if (printNext == 1) {
+								printNext = 0;
+								//printf("%d\n", mybyte);
+							}
+							if (mybyte == 106) {
+								printNext = 1;
+								//printf("FOUND AT 0\n!");
+							}
 							fwrite(&mybyte, 1, 1, fptr);
-							byteIndex = 0;
+							byteIndex = 1;
 							mybyte = 0;
+							mybyte = mybyte << 1;
+							//printf("%d ", out[symbolIndex][it2]);
+							if (out[symbolIndex][it2] == 1) {
+								mybyte |= 1;
+								//printf("ONE! %X\n", mybyte);
+							}
 							totalLen += 1;
 						}
 					}
 				//	printf(" ");
 					finalLength += lengths[symbolIndex];
 				}
-
+				
+				if (byteIndex != 0 && mybyte != 0) {
+					mybyte = mybyte << (8 - byteIndex);
+					fwrite(&mybyte, 1, 1, fptr);
+					byteIndex = 0;
+				}
+				
+				//printf("\nENCODED: ");
+				//for (int i = 0; i < finalLength; i++)
+				//	printf("%X ", result[i]);
 
 				int decoded[1000];
 				int decodedlength = 0;
+				//void decode_file2(char s[], int len, char codes[][1000], int size, int symbols[], int result[], int lengths[])
 
 				decode_file2(result, finalLength,out,index,symbols,decoded,lengths);
 
@@ -1104,7 +1491,7 @@ void step2(Mat_<Vec3b> img) {
 
 
 				//std::cout << "\n\n\n\n";
-				//block = decodedBlock;
+				block = decodedBlock;
 
 				
 				for (int it = 0; it < 8; it++) {
@@ -1139,10 +1526,12 @@ void step2(Mat_<Vec3b> img) {
 			}
 		}
 
+
 	fclose(fptr);
+	decompress_file(dst.rows, dst.cols);
 	cvtColor(dst, dst, COLOR_YCrCb2BGR);
-	imshow("blocks", dst);
-	waitKey(0);
+	//imshow("blocks", dst);
+	//waitKey(0);
 	printf("%ld", totalLen);
 	printf("\n%ld", originalLen);
 }
